@@ -3,10 +3,7 @@ package Challenge;
 import com.mysql.cj.jdbc.MysqlDataSource;
 
 import javax.swing.plaf.nimbus.State;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -25,11 +22,10 @@ public class Main {
 
 		try (Connection conn = dataSource.getConnection()) {
 
-			Statement statement = conn.createStatement();
 			DatabaseMetaData metaData = conn.getMetaData();
 			System.out.println(metaData.getSQLStateType());
-//			insertOrderDetails(statement, 2, "Well done, Not so good, Hurray");
-			deleteOrder(statement, 1);
+//			insertOrderDetails(conn, "Socks, Shoes, Shirt");
+			deleteOrder(conn, 7);
 
 			if (!checkSchema(conn)) {
 				System.out.println("storefront schema does not exist");
@@ -96,37 +92,66 @@ public class Main {
 		}
 	}
 
-	private static void insertOrderDetails(Statement statement, int orderNo, String orderDetails) throws SQLException {
+	private static void insertOrderDetails(Connection conn, String orderDetails)
+			throws SQLException {
 
 		LocalDateTime date = LocalDateTime.now();
 		DateTimeFormatter formatter =
 				DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
 		String formattedDate = date.format(formatter);
 
-		String orderInsert = "INSERT INTO storefront.order (order_id, order_date) VALUES (%d, '%s')".formatted(orderNo, formattedDate);
-		statement.execute(orderInsert);
-		System.out.println(orderInsert);
+		try (Statement statement = conn.createStatement()) {
+			conn.setAutoCommit(false);
 
-		String[] details = orderDetails.split(",");
+			try {
+				String orderInsert = """
+						INSERT INTO storefront.order (order_date)
+						VALUES ('%s')
+						""".formatted(formattedDate);
+				statement.executeUpdate(orderInsert,
+						Statement.RETURN_GENERATED_KEYS);
+				ResultSet rs = statement.getGeneratedKeys();
 
-		for (String detail : details) {
-			detail = detail.trim();
+				if (!rs.next()) {
+					throw new SQLException("Order ID not generated");
+				}
 
-			String orderDetailsInsert = """
-					INSERT INTO storefront.order_details
-					(order_id, item_description)
-					VALUES (%d, '%s')
-					""". formatted(orderNo, detail);
+				int orderId = rs.getInt(1);
+				System.out.println("Created order: " + orderId);
+				String[] details = orderDetails.split(",");
 
-			System.out.println(orderDetailsInsert);
-			statement.execute(orderDetailsInsert);
+				for (String detail : details) {
+					detail = detail.trim();
+					String orderDetailsInsert = """
+							INSERT INTO storefront.order_details
+							(order_id, item_description)
+							VALUES (%d, '%s')
+							""".formatted(orderId, detail);
+					System.out.println(orderDetailsInsert);
+					statement.executeUpdate(orderDetailsInsert);
+				}
+
+				conn.commit();
+
+			} catch (SQLException e) {
+				conn.rollback();
+				throw e;
+			} finally {
+				conn.setAutoCommit(true);
+			}
 		}
 	}
 
-	private static void deleteOrder(Statement statement, int orderNo) throws SQLException {
-		String query = "DELETE FROM storefront.order WHERE order_id=%d"
+	private static void deleteOrder(Connection conn, int orderNo) throws SQLException {
+		String deleteQuery = "DELETE FROM storefront.order WHERE order_id=%d"
 				.formatted(orderNo);
-		statement.execute(query);
-		System.out.println(query);
+
+		try (Statement statement = conn.createStatement()) {
+			int deletedRecords = statement.executeUpdate(deleteQuery);
+			System.out.println(deletedRecords);
+		} catch (SQLException e) {
+			throw new RuntimeException(e);
+		}
 	}
 }
