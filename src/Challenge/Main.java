@@ -7,6 +7,8 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class Main {
 
@@ -23,16 +25,20 @@ public class Main {
 
 		try (Connection conn = dataSource.getConnection()) {
 
+			Statement statement = conn.createStatement();
 			DatabaseMetaData metaData = conn.getMetaData();
 			System.out.println(metaData.getSQLStateType());
+//			insertOrderDetails(statement, 2, "Well done, Not so good, Hurray");
+			deleteOrder(statement, 1);
 
 			if (!checkSchema(conn)) {
 				System.out.println("storefront schema does not exist");
-				setUpSchema(conn);
+//				setUpSchema(conn);
 			}
 		} catch (SQLException e) {
 			throw new RuntimeException(e);
 		}
+
 	}
 
 	private static boolean checkSchema(Connection conn) throws SQLException {
@@ -90,7 +96,37 @@ public class Main {
 		}
 	}
 
-	private static boolean insertOrderDetails(Connection conn,) throws SQLException{
+	private static void insertOrderDetails(Statement statement, int orderNo, String orderDetails) throws SQLException {
 
+		LocalDateTime date = LocalDateTime.now();
+		DateTimeFormatter formatter =
+				DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+		String formattedDate = date.format(formatter);
+
+		String orderInsert = "INSERT INTO storefront.order (order_id, order_date) VALUES (%d, '%s')".formatted(orderNo, formattedDate);
+		statement.execute(orderInsert);
+		System.out.println(orderInsert);
+
+		String[] details = orderDetails.split(",");
+
+		for (String detail : details) {
+			detail = detail.trim();
+
+			String orderDetailsInsert = """
+					INSERT INTO storefront.order_details
+					(order_id, item_description)
+					VALUES (%d, '%s')
+					""". formatted(orderNo, detail);
+
+			System.out.println(orderDetailsInsert);
+			statement.execute(orderDetailsInsert);
+		}
+	}
+
+	private static void deleteOrder(Statement statement, int orderNo) throws SQLException {
+		String query = "DELETE FROM storefront.order WHERE order_id=%d"
+				.formatted(orderNo);
+		statement.execute(query);
+		System.out.println(query);
 	}
 }
