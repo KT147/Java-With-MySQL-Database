@@ -93,53 +93,58 @@ public class PreparedStatement {
 	}
 
 
-
 	private static void addOrdersFromFile(Connection conn) throws SQLException {
+
+		List<String> lines;
+
+		try {
+			lines = Files.readAllLines(Path.of("Orders.csv"));
+		} catch (Exception e) {
+			throw new RuntimeException("Cannot read file", e);
+		}
 
 		int currentOrderId = -1;
 
+		for (String line : lines) {
 
-		try {
-			conn.setAutoCommit(false);
-			List<String> lines = Files.readAllLines(Path.of("Orders.csv"));
+			String[] parts = line.split(",");
+			String type = parts[0];
 
-			for (String line : lines) {
-				String [] parts = line.split(",");
-				String recordType = parts[0];
+			if (type.equals("order")) {
 
-				if (recordType.equals("order")) {
-						String orderDate = parts[1];
-						currentOrderId = createOrder(conn, orderDate);
-				} else if (recordType.equals("item")) {
-					String itemDescription = parts[2];
-					int quantity = Integer.parseInt(parts[1]);
-					insertItem(conn, currentOrderId, itemDescription, quantity);
+				String orderDate = parts[1];
+
+				try {
+					conn.setAutoCommit(false);
+					currentOrderId = createOrder(conn, orderDate);
+					conn.commit();
+					System.out.println("Order created: " + currentOrderId);
+
+				} catch (Exception e) {
+					System.out.println("Skipping invalid order: " + orderDate);
+					try {
+						conn.rollback();
+					} catch (SQLException ex) {
+						throw new RuntimeException(ex);
+					}
+				}
+
+			} else if (type.equals("item")) {
+
+				try {
+					String desc = parts[2];
+					int qty = Integer.parseInt(parts[1]);
+					insertItem(conn, currentOrderId, desc, qty);
+
+				} catch (Exception e) {
+					System.out.println("Skipping bad item line: " + line);
 				}
 			}
-
-			conn.commit();
-		} catch (IOException e) {
-			conn.rollback();
-			throw new RuntimeException(e);
 		}
-		finally {
-
-			conn.setAutoCommit(true);
-		}
-
-
-
-	}
-
-	private static void deleteOrder(Connection conn, int orderNo) throws SQLException {
-		String deleteQuery = "DELETE FROM storefront.order WHERE order_id=%d"
-				.formatted(orderNo);
-
-		try (Statement statement = conn.createStatement()) {
-			int deletedRecords = statement.executeUpdate(deleteQuery);
-			System.out.println(deletedRecords);
-		} catch (SQLException e) {
-			throw new RuntimeException(e);
-		}
+		conn.setAutoCommit(true);
 	}
 }
+
+
+
+

@@ -25,11 +25,11 @@ public class Main {
 			DatabaseMetaData metaData = conn.getMetaData();
 			System.out.println(metaData.getSQLStateType());
 //			insertOrderDetails(conn, "Socks, Shoes, Shirt");
-			deleteOrder(conn, 1);
+//			deleteOrder(conn, 1);
 
 			if (!checkSchema(conn)) {
 				System.out.println("storefront schema does not exist");
-//				setUpSchema(conn);
+				setUpSchema(conn);
 			}
 		} catch (SQLException e) {
 			throw new RuntimeException(e);
@@ -70,6 +70,7 @@ public class Main {
 				order_detail_id INT NOT NULL AUTO_INCREMENT,
 				item_description text,
 				order_id INT DEFAULT NULL,
+				order_qty int,
 				PRIMARY KEY (order_detail_id),
 				KEY FK_ORDERID (order_id),
 				CONSTRAINT FK_ORDERID
