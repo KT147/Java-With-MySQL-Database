@@ -25,7 +25,7 @@ public class Main {
 			DatabaseMetaData metaData = conn.getMetaData();
 			System.out.println(metaData.getSQLStateType());
 //			insertOrderDetails(conn, "Socks, Shoes, Shirt");
-			deleteOrder(conn, 7);
+			deleteOrder(conn, 1);
 
 			if (!checkSchema(conn)) {
 				System.out.println("storefront schema does not exist");
