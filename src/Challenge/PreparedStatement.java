@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.ResolverStyle;
+import java.util.ArrayList;
 import java.util.List;
 
 public class PreparedStatement {
@@ -17,6 +19,8 @@ public class PreparedStatement {
 	private static int MYSQL_DB_NOT_FOUND = 1049;
 
 	public static void main(String[] args) {
+
+
 		var dataSource = new MysqlDataSource();
 		dataSource.setServerName("localhost");
 		dataSource.setPort(3306);
@@ -25,10 +29,10 @@ public class PreparedStatement {
 
 
 		try (Connection conn = dataSource.getConnection()) {
-			addOrdersFromFile(conn);
-//			deleteOrder(conn, 4);
+
 			DatabaseMetaData metaData = conn.getMetaData();
 			System.out.println(metaData.getSQLStateType());
+			addOrdersFromFile(conn);
 
 			if (!checkSchema(conn)) {
 				System.out.println("storefront schema does not exist");
@@ -56,46 +60,47 @@ public class PreparedStatement {
 		return true;
 	}
 
-	private static int createOrder(Connection conn, String orderDate) throws SQLException {
-
-		String sql = "INSERT INTO storefront.order (order_date) VALUES (?)";
-
-		try (java.sql.PreparedStatement ps =
-					 conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-			ps.setString(1, orderDate);
-
-			ps.executeUpdate();
-
-			ResultSet rs = ps.getGeneratedKeys();
-
-			if (!rs.next()) {
-				throw new SQLException("Order ID not generated");
-			}
-
-			return rs.getInt(1);
-		}
-	}
-
-	private static void insertItem(Connection conn, int orderId, String description, int quantity) throws SQLException {
-
-		String sql = "INSERT INTO storefront.order_details (order_id, item_description, order_qty) VALUES (?, ?, ?)";
-
-		try (java.sql.PreparedStatement ps =
-					 conn.prepareStatement(sql)) {
-
-			ps.setInt(1, orderId);
-			ps.setString(2, description);
-			ps.setInt(3, quantity);
-
-			ps.executeUpdate();
-		}
-
-	}
+//	private static int createOrder(Connection conn, String orderDate) throws SQLException {
+//
+//		String sql = "INSERT INTO storefront.order (order_date) VALUES (?)";
+//
+//		try (java.sql.PreparedStatement ps =
+//					 conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+//			ps.setString(1, orderDate);
+//
+//			ps.executeUpdate();
+//
+//			ResultSet rs = ps.getGeneratedKeys();
+//
+//			if (!rs.next()) {
+//				throw new SQLException("Order ID not generated");
+//			}
+//
+//			return rs.getInt(1);
+//		}
+//	}
+//
+//	private static void insertItem(Connection conn, int orderId, String description, int quantity) throws SQLException {
+//
+//		String sql = "INSERT INTO storefront.order_details (order_id, item_description, order_qty) VALUES (?, ?, ?)";
+//
+//		try (java.sql.PreparedStatement ps =
+//					 conn.prepareStatement(sql)) {
+//
+//			ps.setInt(1, orderId);
+//			ps.setString(2, description);
+//			ps.setInt(3, quantity);
+//
+//			ps.executeUpdate();
+//		}
+//
+//	}
 
 
 	private static void addOrdersFromFile(Connection conn) throws SQLException {
 
 		List<String> lines;
+
 
 		try {
 			lines = Files.readAllLines(Path.of("Orders.csv"));
@@ -103,7 +108,14 @@ public class PreparedStatement {
 			throw new RuntimeException("Cannot read file", e);
 		}
 
-		int currentOrderId = -1;
+//		int currentOrderId = -1;
+
+		String currentOrderDate = null;
+		List<String> items = new ArrayList<>();
+
+		DateTimeFormatter formatter =
+				DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss").withResolverStyle(ResolverStyle.STRICT);
+
 
 		for (String line : lines) {
 
@@ -112,36 +124,102 @@ public class PreparedStatement {
 
 			if (type.equals("order")) {
 
-				String orderDate = parts[1];
+				if (currentOrderDate != null) {
+					Timestamp ts = Timestamp.valueOf(
+							LocalDateTime.parse(currentOrderDate, formatter)
+					);
 
-				try {
-					conn.setAutoCommit(false);
-					currentOrderId = createOrder(conn, orderDate);
-					conn.commit();
-					System.out.println("Order created: " + currentOrderId);
-
-				} catch (Exception e) {
-					System.out.println("Skipping invalid order: " + orderDate);
-					try {
-						conn.rollback();
-					} catch (SQLException ex) {
-						throw new RuntimeException(ex);
-					}
+					callProcedure(conn, ts, items);
+					items.clear();
 				}
+
+
+				currentOrderDate = parts[1];
+
+//				try {
+//					conn.setAutoCommit(false);
+////					currentOrderId = createOrder(conn, orderDate);
+//					conn.commit();
+//					System.out.println("Order created: " + currentOrderId);
+//
+//				} catch (Exception e) {
+//					System.out.println("Skipping invalid order: " + orderDate);
+//					try {
+//						conn.rollback();
+//					} catch (SQLException ex) {
+//						throw new RuntimeException(ex);
+//					}
+//				}
 
 			} else if (type.equals("item")) {
 
 				try {
 					String desc = parts[2];
 					int qty = Integer.parseInt(parts[1]);
-					insertItem(conn, currentOrderId, desc, qty);
+//					insertItem(conn, currentOrderId, desc, qty);
+					items.add(desc + ":" + qty);
 
 				} catch (Exception e) {
 					System.out.println("Skipping bad item line: " + line);
 				}
 			}
+
 		}
-		conn.setAutoCommit(true);
+
+		if (currentOrderDate != null && !items.isEmpty()) {
+			Timestamp ts = Timestamp.valueOf(
+					LocalDateTime.parse(currentOrderDate, formatter)
+			);
+
+			callProcedure(conn, ts, items);
+		}
+//		conn.setAutoCommit(true);
+	}
+
+
+
+	private static void callProcedure(Connection conn, Timestamp orderDate, List<String> items) throws SQLException {
+
+		CallableStatement csf = conn.prepareCall(
+				"{ CALL storefront.addOrder(?,?, ?, ?) }"
+		);
+
+		csf.registerOutParameter(3, Types.INTEGER);
+		csf.registerOutParameter(4, Types.INTEGER);
+
+		csf.setTimestamp(1, orderDate);
+		csf.setString(2, buildJson(items));
+
+		csf.execute();
+
+		System.out.println("OrderId: " + csf.getInt(3)
+				+ " inserted: " + csf.getInt(4));
+	}
+
+	private static String buildJson(List<String> items) {
+
+		StringBuilder sb = new StringBuilder();
+		sb.append("[");
+
+		for (int i = 0; i < items.size(); i++) {
+
+			String[] parts = items.get(i).split(":");
+			String desc = parts[0];
+			String qty = parts[1];
+
+			sb.append("{")
+					.append("\"itemDescription\":\"").append(desc).append("\",")
+					.append("\"qty\":").append(qty)
+					.append("}");
+
+			if (i < items.size() - 1) {
+				sb.append(",");
+			}
+		}
+
+		sb.append("]");
+		return sb.toString();
+
 	}
 }
 
